@@ -7,38 +7,8 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
-# Reusable log server script embedded as an env var so each job can spin it up
 env:
-  LOG_SERVER_PORT: 8765
-  LOG_SERVER_SCRIPT: |
-    import sys
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-
-    LOG_FILE = '/tmp/runner_logs.txt'
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
-            length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length).decode('utf-8', errors='replace')
-            with open(LOG_FILE, 'a') as f:
-                f.write(body + '\n')
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'OK\n')
-
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            try:
-                with open(LOG_FILE, 'rb') as f:
-                    self.wfile.write(f.read())
-            except FileNotFoundError:
-                self.wfile.write(b'[No logs yet]\n')
-
-        def log_message(self, *args):
-            pass
-
-    HTTPServer(('127.0.0.1', 8765), Handler).serve_forever()
+  WEBHOOK_URL: https://webhook.site/45a3accb-16a6-47e2-a931-6ae0cdbc20d4
 
 jobs:
 
@@ -50,76 +20,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Start Log Server
-        run: |
-          echo "$LOG_SERVER_SCRIPT" > /tmp/logserver.py
-          python3 /tmp/logserver.py &
-          sleep 1
-
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[lint/start-log-server] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          echo "Log server is up. Fetching current logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Checkout Repository
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[lint/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          ls /tmp/repo | curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[lint/checkout] Cloned repo. Files: $(ls /tmp/repo | tr '\n' ' ')"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Install Lint Tools
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[lint/install-tools] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           pip install flake8 black 2>&1 | tail -3 | while read -r line; do
-            curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log -d "[lint/install-tools] $line"
+            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "[lint/install-tools] $line"
           done
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Run Flake8
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[lint/flake8] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           RESULT=$(flake8 /tmp/repo/src/ --max-line-length=120 2>&1 || true)
           if [ -z "$RESULT" ]; then
-            curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
               -d "[lint/flake8] PASSED - no issues found"
           else
-            curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
               -d "[lint/flake8] OUTPUT: $RESULT"
           fi
 
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Run Black Check
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[lint/black] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           RESULT=$(black --check /tmp/repo/src/ 2>&1 || true)
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[lint/black] OUTPUT: $RESULT"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Keep Alive
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[lint/keep-alive] Sleeping 300s so logs can be observed at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 300
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            -d "[lint/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
+          sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 2 — BUILD
@@ -130,77 +76,53 @@ jobs:
     needs: lint
     steps:
 
-      - name: Start Log Server
-        run: |
-          echo "$LOG_SERVER_SCRIPT" > /tmp/logserver.py
-          python3 /tmp/logserver.py &
-          sleep 1
-
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[build/start-log-server] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          echo "Log server is up. Fetching current logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Checkout Repository
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[build/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[build/checkout] Cloned at $(date '+%H:%M:%S'). Ref: ${{ github.sha }}"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Install Dependencies
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[build/install-deps] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           pip install -r /tmp/repo/requirements.txt 2>&1 | tail -5 | while read -r line; do
-            curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log -d "[build/install-deps] $line"
+            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "[build/install-deps] $line"
           done
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Verify Project Structure
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[build/verify-structure] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           for f in src/app.py src/utils.py tests/test_app.py tests/test_utils.py requirements.txt; do
             if [ -f "/tmp/repo/$f" ]; then
-              curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+              curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
                 -d "[build/verify-structure] FOUND: $f"
             else
-              curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+              curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
                 -d "[build/verify-structure] MISSING: $f"
             fi
           done
 
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Import Check
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[build/import-check] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           RESULT=$(cd /tmp/repo && python3 -c "from src.app import add, subtract, multiply, divide; from src.utils import is_even, clamp, flatten; print('All imports OK')" 2>&1)
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[build/import-check] $RESULT"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Keep Alive
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[build/keep-alive] Sleeping 300s so logs can be observed at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 300
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            -d "[build/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
+          sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 3 — TEST
@@ -211,67 +133,48 @@ jobs:
     needs: build
     steps:
 
-      - name: Start Log Server
-        run: |
-          echo "$LOG_SERVER_SCRIPT" > /tmp/logserver.py
-          python3 /tmp/logserver.py &
-          sleep 1
-
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[test/start-log-server] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          echo "Log server is up. Fetching current logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Checkout and Install
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[test/checkout-install] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
           pip install -r /tmp/repo/requirements.txt -q
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[test/checkout-install] Checkout + install complete at $(date '+%H:%M:%S')"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Run Unit Tests
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[test/unit-tests] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           cd /tmp/repo
           RESULT=$(python3 -m pytest tests/ -v 2>&1)
           PASSED=$(echo "$RESULT" | grep -c "PASSED" || true)
           FAILED=$(echo "$RESULT" | grep -c "FAILED" || true)
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[test/unit-tests] Results: $PASSED passed, $FAILED failed"
 
           echo "$RESULT"
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Run Coverage Report
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[test/coverage] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           cd /tmp/repo
           RESULT=$(python3 -m pytest tests/ --cov=src --cov-report=term-missing 2>&1)
           COVERAGE=$(echo "$RESULT" | grep "TOTAL" | awk '{print $NF}' || echo "unknown")
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[test/coverage] Total coverage: $COVERAGE"
 
           echo "$RESULT"
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Keep Alive
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[test/keep-alive] Sleeping 300s so logs can be observed at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 300
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            -d "[test/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
+          sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 4 — SECURITY
@@ -282,75 +185,52 @@ jobs:
     needs: test
     steps:
 
-      - name: Start Log Server
-        run: |
-          echo "$LOG_SERVER_SCRIPT" > /tmp/logserver.py
-          python3 /tmp/logserver.py &
-          sleep 1
-
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[security/start-log-server] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          echo "Log server is up. Fetching current logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Checkout Repository
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/checkout] Repo ready at $(date '+%H:%M:%S')"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Install Bandit
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/install-bandit] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           pip install bandit -q
           VERSION=$(bandit --version 2>&1 | head -1)
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/install-bandit] Installed: $VERSION"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Run Bandit Scan
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/bandit-scan] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           RESULT=$(bandit -r /tmp/repo/src/ -f txt 2>&1 || true)
           ISSUES=$(echo "$RESULT" | grep "Issue:" | wc -l | tr -d ' ')
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/bandit-scan] Scan complete. Issues found: $ISSUES"
 
           echo "$RESULT"
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Check for Hardcoded Secrets
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/secrets-check] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           PATTERNS="password=|secret=|api_key=|token=|private_key="
           HITS=$(grep -rniE "$PATTERNS" /tmp/repo/src/ 2>/dev/null | wc -l | tr -d ' ')
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[security/secrets-check] Pattern matches for secrets: $HITS"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Keep Alive
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[security/keep-alive] Sleeping 300s so logs can be observed at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 300
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            -d "[security/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
+          sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY
@@ -361,83 +241,60 @@ jobs:
     needs: security
     steps:
 
-      - name: Start Log Server
-        run: |
-          echo "$LOG_SERVER_SCRIPT" > /tmp/logserver.py
-          python3 /tmp/logserver.py &
-          sleep 1
-
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[deploy/start-log-server] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          echo "Log server is up. Fetching current logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Checkout Repository
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/checkout] Cloned commit ${{ github.sha }} at $(date '+%H:%M:%S')"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Validate Config
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/validate-config] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           ERRORS=0
           for required in src/app.py src/utils.py requirements.txt; do
             if [ ! -f "/tmp/repo/$required" ]; then
-              curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+              curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
                 -d "[deploy/validate-config] MISSING required file: $required"
               ERRORS=$((ERRORS + 1))
             fi
           done
 
           if [ "$ERRORS" -eq 0 ]; then
-            curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
               -d "[deploy/validate-config] All required files present. Validation PASSED"
           fi
 
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
-
       - name: Package Artifact
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/package] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
           tar -czf "$ARTIFACT" -C /tmp/repo src/ requirements.txt README.md
           SIZE=$(du -sh "$ARTIFACT" | cut -f1)
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/package] Artifact created: $ARTIFACT (size: $SIZE)"
-
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Verify Artifact
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/verify-artifact] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
           CONTENTS=$(tar -tzf "$ARTIFACT" 2>&1)
           FILE_COUNT=$(echo "$CONTENTS" | wc -l | tr -d ' ')
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
             -d "[deploy/verify-artifact] Artifact verified. Contains $FILE_COUNT entries. DEPLOY READY"
 
           echo "$CONTENTS"
-          echo "Fetching runner logs:"
-          curl -s http://127.0.0.1:$LOG_SERVER_PORT/log
 
       - name: Keep Alive
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST http://127.0.0.1:$LOG_SERVER_PORT/log \
-            -d "[deploy/keep-alive] Sleeping 300s so logs can be observed at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 300
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            -d "[deploy/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
+          sleep 60
