@@ -20,52 +20,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Checkout Repository
+      - name: Notify Start
         run: |
           curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+            -d "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
+      - name: Run Lint
+        run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/checkout] Cloned repo. Files: $(ls /tmp/repo | tr '\n' ' ')"
+          pip install flake8 black -q
 
-      - name: Install Lint Tools
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/install-tools] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          LOGS="[lint] Results as of $(date '+%H:%M:%S')\n"
 
-          pip install flake8 black 2>&1 | tail -3 | while read -r line; do
-            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "[lint/install-tools] $line"
-          done
-
-      - name: Run Flake8
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/flake8] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          RESULT=$(flake8 /tmp/repo/src/ --max-line-length=120 2>&1 || true)
-          if [ -z "$RESULT" ]; then
-            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-              -d "[lint/flake8] PASSED - no issues found"
+          FLAKE=$(flake8 /tmp/repo/src/ --max-line-length=120 2>&1 || true)
+          if [ -z "$FLAKE" ]; then
+            LOGS="${LOGS}  flake8: PASSED\n"
           else
-            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-              -d "[lint/flake8] OUTPUT: $RESULT"
+            LOGS="${LOGS}  flake8: $FLAKE\n"
           fi
 
-      - name: Run Black Check
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/black] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          BLACK=$(black --check /tmp/repo/src/ 2>&1 || true)
+          LOGS="${LOGS}  black: $BLACK\n"
 
-          RESULT=$(black --check /tmp/repo/src/ 2>&1 || true)
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/black] OUTPUT: $RESULT"
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
 
       - name: Keep Alive
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 60
+        run: sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 2 — BUILD
@@ -76,53 +56,33 @@ jobs:
     needs: lint
     steps:
 
-      - name: Checkout Repository
+      - name: Notify Start
         run: |
           curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+            -d "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
+      - name: Run Build
+        run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/checkout] Cloned at $(date '+%H:%M:%S'). Ref: ${{ github.sha }}"
+          pip install -r /tmp/repo/requirements.txt -q
 
-      - name: Install Dependencies
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/install-deps] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          pip install -r /tmp/repo/requirements.txt 2>&1 | tail -5 | while read -r line; do
-            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "[build/install-deps] $line"
-          done
-
-      - name: Verify Project Structure
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/verify-structure] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          LOGS="[build] Results as of $(date '+%H:%M:%S')\n"
 
           for f in src/app.py src/utils.py tests/test_app.py tests/test_utils.py requirements.txt; do
             if [ -f "/tmp/repo/$f" ]; then
-              curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-                -d "[build/verify-structure] FOUND: $f"
+              LOGS="${LOGS}  structure: FOUND $f\n"
             else
-              curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-                -d "[build/verify-structure] MISSING: $f"
+              LOGS="${LOGS}  structure: MISSING $f\n"
             fi
           done
 
-      - name: Import Check
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/import-check] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          IMPORT=$(cd /tmp/repo && python3 -c "from src.app import add, subtract, multiply, divide; from src.utils import is_even, clamp, flatten; print('All imports OK')" 2>&1)
+          LOGS="${LOGS}  imports: $IMPORT\n"
 
-          RESULT=$(cd /tmp/repo && python3 -c "from src.app import add, subtract, multiply, divide; from src.utils import is_even, clamp, flatten; print('All imports OK')" 2>&1)
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/import-check] $RESULT"
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
 
       - name: Keep Alive
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 60
+        run: sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 3 — TEST
@@ -133,48 +93,30 @@ jobs:
     needs: build
     steps:
 
-      - name: Checkout and Install
+      - name: Notify Start
         run: |
           curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/checkout-install] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+            -d "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
+      - name: Run Tests
+        run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
           pip install -r /tmp/repo/requirements.txt -q
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/checkout-install] Checkout + install complete at $(date '+%H:%M:%S')"
-
-      - name: Run Unit Tests
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/unit-tests] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           cd /tmp/repo
-          RESULT=$(python3 -m pytest tests/ -v 2>&1)
-          PASSED=$(echo "$RESULT" | grep -c "PASSED" || true)
-          FAILED=$(echo "$RESULT" | grep -c "FAILED" || true)
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/unit-tests] Results: $PASSED passed, $FAILED failed"
+          PYTEST=$(python3 -m pytest tests/ -v 2>&1)
+          PASSED=$(echo "$PYTEST" | grep -c "PASSED" || true)
+          FAILED=$(echo "$PYTEST" | grep -c "FAILED" || true)
+          COVERAGE=$(python3 -m pytest tests/ --cov=src --cov-report=term-missing 2>&1 | grep "TOTAL" | awk '{print $NF}' || echo "unknown")
 
-          echo "$RESULT"
+          LOGS="[test] Results as of $(date '+%H:%M:%S')\n"
+          LOGS="${LOGS}  unit tests: $PASSED passed, $FAILED failed\n"
+          LOGS="${LOGS}  coverage: $COVERAGE\n"
 
-      - name: Run Coverage Report
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/coverage] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          cd /tmp/repo
-          RESULT=$(python3 -m pytest tests/ --cov=src --cov-report=term-missing 2>&1)
-          COVERAGE=$(echo "$RESULT" | grep "TOTAL" | awk '{print $NF}' || echo "unknown")
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/coverage] Total coverage: $COVERAGE"
-
-          echo "$RESULT"
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
 
       - name: Keep Alive
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 60
+        run: sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 4 — SECURITY
@@ -185,52 +127,28 @@ jobs:
     needs: test
     steps:
 
-      - name: Checkout Repository
+      - name: Notify Start
         run: |
           curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+            -d "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
+      - name: Run Security Scan
+        run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/checkout] Repo ready at $(date '+%H:%M:%S')"
-
-      - name: Install Bandit
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/install-bandit] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
           pip install bandit -q
-          VERSION=$(bandit --version 2>&1 | head -1)
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/install-bandit] Installed: $VERSION"
 
-      - name: Run Bandit Scan
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/bandit-scan] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          RESULT=$(bandit -r /tmp/repo/src/ -f txt 2>&1 || true)
-          ISSUES=$(echo "$RESULT" | grep "Issue:" | wc -l | tr -d ' ')
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/bandit-scan] Scan complete. Issues found: $ISSUES"
-
-          echo "$RESULT"
-
-      - name: Check for Hardcoded Secrets
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/secrets-check] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
+          ISSUES=$(bandit -r /tmp/repo/src/ -f txt 2>&1 | grep "Issue:" | wc -l | tr -d ' ')
           PATTERNS="password=|secret=|api_key=|token=|private_key="
           HITS=$(grep -rniE "$PATTERNS" /tmp/repo/src/ 2>/dev/null | wc -l | tr -d ' ')
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/secrets-check] Pattern matches for secrets: $HITS"
+
+          LOGS="[security] Results as of $(date '+%H:%M:%S')\n"
+          LOGS="${LOGS}  bandit issues: $ISSUES\n"
+          LOGS="${LOGS}  hardcoded secret patterns: $HITS\n"
+
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
 
       - name: Keep Alive
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 60
+        run: sleep 60
 
   # ─────────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY
@@ -241,60 +159,36 @@ jobs:
     needs: security
     steps:
 
-      - name: Checkout Repository
+      - name: Notify Start
         run: |
           curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/checkout] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+            -d "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
+      - name: Run Deploy
+        run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/checkout] Cloned commit ${{ github.sha }} at $(date '+%H:%M:%S')"
 
-      - name: Validate Config
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/validate-config] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          LOGS="[deploy] Results as of $(date '+%H:%M:%S')\n"
 
           ERRORS=0
           for required in src/app.py src/utils.py requirements.txt; do
             if [ ! -f "/tmp/repo/$required" ]; then
-              curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-                -d "[deploy/validate-config] MISSING required file: $required"
+              LOGS="${LOGS}  validation: MISSING $required\n"
               ERRORS=$((ERRORS + 1))
             fi
           done
-
           if [ "$ERRORS" -eq 0 ]; then
-            curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-              -d "[deploy/validate-config] All required files present. Validation PASSED"
+            LOGS="${LOGS}  validation: PASSED\n"
           fi
-
-      - name: Package Artifact
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/package] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
 
           ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
           tar -czf "$ARTIFACT" -C /tmp/repo src/ requirements.txt README.md
           SIZE=$(du -sh "$ARTIFACT" | cut -f1)
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/package] Artifact created: $ARTIFACT (size: $SIZE)"
+          FILE_COUNT=$(tar -tzf "$ARTIFACT" | wc -l | tr -d ' ')
+          LOGS="${LOGS}  artifact: $ARTIFACT | size: $SIZE | files: $FILE_COUNT\n"
+          LOGS="${LOGS}  status: DEPLOY READY\n"
 
-      - name: Verify Artifact
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/verify-artifact] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
-
-          ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
-          CONTENTS=$(tar -tzf "$ARTIFACT" 2>&1)
-          FILE_COUNT=$(echo "$CONTENTS" | wc -l | tr -d ' ')
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/verify-artifact] Artifact verified. Contains $FILE_COUNT entries. DEPLOY READY"
-
-          echo "$CONTENTS"
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
 
       - name: Keep Alive
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy/keep-alive] Sleeping 300s at $(date '+%Y-%m-%d %H:%M:%S')"
-          sleep 60
+        run: sleep 60
