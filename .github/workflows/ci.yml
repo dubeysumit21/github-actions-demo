@@ -27,25 +27,33 @@ jobs:
 
       - name: Run Lint
         run: |
-          git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          pip install flake8 black -q
+          {
+            echo "[lint] === git clone ==="
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
+            echo ""
 
-          LOGS="[lint] Results as of $(date '+%H:%M:%S')\n"
+            echo "[lint] === pip install flake8 black ==="
+            pip install flake8 black 2>&1
+            echo ""
 
-          FLAKE=$(flake8 /tmp/repo/src/ --max-line-length=120 2>&1 || true)
-          if [ -z "$FLAKE" ]; then
-            LOGS="${LOGS}  flake8: PASSED\n"
-          else
-            LOGS="${LOGS}  flake8: $FLAKE\n"
-          fi
+            echo "[lint] === flake8 ==="
+            flake8 /tmp/repo/src/ --max-line-length=120 2>&1 || true
+            echo ""
 
-          BLACK=$(black --check /tmp/repo/src/ 2>&1 || true)
-          LOGS="${LOGS}  black: $BLACK\n"
+            echo "[lint] === black check ==="
+            black --check /tmp/repo/src/ 2>&1 || true
+            echo ""
 
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
+            echo "[lint] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
+          } > /tmp/job_logs.txt
 
       - name: Keep Alive
         run: sleep 60
+
+      - name: Send Logs
+        run: |
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            --data-binary @/tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 2 — BUILD
@@ -63,26 +71,39 @@ jobs:
 
       - name: Run Build
         run: |
-          git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          pip install -r /tmp/repo/requirements.txt -q
+          {
+            echo "[build] === git clone ==="
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
+            echo ""
 
-          LOGS="[build] Results as of $(date '+%H:%M:%S')\n"
+            echo "[build] === pip install dependencies ==="
+            pip install -r /tmp/repo/requirements.txt 2>&1
+            echo ""
 
-          for f in src/app.py src/utils.py tests/test_app.py tests/test_utils.py requirements.txt; do
-            if [ -f "/tmp/repo/$f" ]; then
-              LOGS="${LOGS}  structure: FOUND $f\n"
-            else
-              LOGS="${LOGS}  structure: MISSING $f\n"
-            fi
-          done
+            echo "[build] === project structure check ==="
+            for f in src/app.py src/utils.py tests/test_app.py tests/test_utils.py requirements.txt; do
+              if [ -f "/tmp/repo/$f" ]; then
+                echo "  FOUND: $f"
+              else
+                echo "  MISSING: $f"
+              fi
+            done
+            echo ""
 
-          IMPORT=$(cd /tmp/repo && python3 -c "from src.app import add, subtract, multiply, divide; from src.utils import is_even, clamp, flatten; print('All imports OK')" 2>&1)
-          LOGS="${LOGS}  imports: $IMPORT\n"
+            echo "[build] === import check ==="
+            cd /tmp/repo && python3 -c "from src.app import add, subtract, multiply, divide; from src.utils import is_even, clamp, flatten; print('All imports OK')" 2>&1
+            echo ""
 
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
+            echo "[build] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
+          } > /tmp/job_logs.txt
 
       - name: Keep Alive
         run: sleep 60
+
+      - name: Send Logs
+        run: |
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            --data-binary @/tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 3 — TEST
@@ -100,23 +121,33 @@ jobs:
 
       - name: Run Tests
         run: |
-          git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          pip install -r /tmp/repo/requirements.txt -q
+          {
+            echo "[test] === git clone ==="
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
+            echo ""
 
-          cd /tmp/repo
-          PYTEST=$(python3 -m pytest tests/ -v 2>&1)
-          PASSED=$(echo "$PYTEST" | grep -c "PASSED" || true)
-          FAILED=$(echo "$PYTEST" | grep -c "FAILED" || true)
-          COVERAGE=$(python3 -m pytest tests/ --cov=src --cov-report=term-missing 2>&1 | grep "TOTAL" | awk '{print $NF}' || echo "unknown")
+            echo "[test] === pip install ==="
+            pip install -r /tmp/repo/requirements.txt 2>&1
+            echo ""
 
-          LOGS="[test] Results as of $(date '+%H:%M:%S')\n"
-          LOGS="${LOGS}  unit tests: $PASSED passed, $FAILED failed\n"
-          LOGS="${LOGS}  coverage: $COVERAGE\n"
+            echo "[test] === pytest ==="
+            cd /tmp/repo && python3 -m pytest tests/ -v 2>&1
+            echo ""
 
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
+            echo "[test] === coverage ==="
+            cd /tmp/repo && python3 -m pytest tests/ --cov=src --cov-report=term-missing 2>&1
+            echo ""
+
+            echo "[test] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
+          } > /tmp/job_logs.txt
 
       - name: Keep Alive
         run: sleep 60
+
+      - name: Send Logs
+        run: |
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            --data-binary @/tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 4 — SECURITY
@@ -134,21 +165,34 @@ jobs:
 
       - name: Run Security Scan
         run: |
-          git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
-          pip install bandit -q
+          {
+            echo "[security] === git clone ==="
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
+            echo ""
 
-          ISSUES=$(bandit -r /tmp/repo/src/ -f txt 2>&1 | grep "Issue:" | wc -l | tr -d ' ')
-          PATTERNS="password=|secret=|api_key=|token=|private_key="
-          HITS=$(grep -rniE "$PATTERNS" /tmp/repo/src/ 2>/dev/null | wc -l | tr -d ' ')
+            echo "[security] === pip install bandit ==="
+            pip install bandit 2>&1
+            echo ""
 
-          LOGS="[security] Results as of $(date '+%H:%M:%S')\n"
-          LOGS="${LOGS}  bandit issues: $ISSUES\n"
-          LOGS="${LOGS}  hardcoded secret patterns: $HITS\n"
+            echo "[security] === bandit scan ==="
+            bandit -r /tmp/repo/src/ -f txt 2>&1 || true
+            echo ""
 
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
+            echo "[security] === hardcoded secrets check ==="
+            PATTERNS="password=|secret=|api_key=|token=|private_key="
+            grep -rniE "$PATTERNS" /tmp/repo/src/ 2>/dev/null || echo "  No matches found"
+            echo ""
+
+            echo "[security] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
+          } > /tmp/job_logs.txt
 
       - name: Keep Alive
         run: sleep 60
+
+      - name: Send Logs
+        run: |
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            --data-binary @/tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY
@@ -166,29 +210,41 @@ jobs:
 
       - name: Run Deploy
         run: |
-          git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo
+          {
+            echo "[deploy] === git clone ==="
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
+            echo ""
 
-          LOGS="[deploy] Results as of $(date '+%H:%M:%S')\n"
-
-          ERRORS=0
-          for required in src/app.py src/utils.py requirements.txt; do
-            if [ ! -f "/tmp/repo/$required" ]; then
-              LOGS="${LOGS}  validation: MISSING $required\n"
-              ERRORS=$((ERRORS + 1))
+            echo "[deploy] === validate config ==="
+            ERRORS=0
+            for required in src/app.py src/utils.py requirements.txt; do
+              if [ ! -f "/tmp/repo/$required" ]; then
+                echo "  MISSING: $required"
+                ERRORS=$((ERRORS + 1))
+              fi
+            done
+            if [ "$ERRORS" -eq 0 ]; then
+              echo "  All required files present. Validation PASSED"
             fi
-          done
-          if [ "$ERRORS" -eq 0 ]; then
-            LOGS="${LOGS}  validation: PASSED\n"
-          fi
+            echo ""
 
-          ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
-          tar -czf "$ARTIFACT" -C /tmp/repo src/ requirements.txt README.md
-          SIZE=$(du -sh "$ARTIFACT" | cut -f1)
-          FILE_COUNT=$(tar -tzf "$ARTIFACT" | wc -l | tr -d ' ')
-          LOGS="${LOGS}  artifact: $ARTIFACT | size: $SIZE | files: $FILE_COUNT\n"
-          LOGS="${LOGS}  status: DEPLOY READY\n"
+            echo "[deploy] === package artifact ==="
+            ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
+            tar -czf "$ARTIFACT" -C /tmp/repo src/ requirements.txt README.md 2>&1
+            SIZE=$(du -sh "$ARTIFACT" | cut -f1)
+            FILE_COUNT=$(tar -tzf "$ARTIFACT" | wc -l | tr -d ' ')
+            echo "  Artifact: $ARTIFACT"
+            echo "  Size: $SIZE"
+            echo "  Files: $FILE_COUNT"
+            echo ""
 
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL -d "$LOGS"
+            echo "[deploy] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S') — DEPLOY READY"
+          } > /tmp/job_logs.txt
 
       - name: Keep Alive
         run: sleep 60
+
+      - name: Send Logs
+        run: |
+          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
+            --data-binary @/tmp/job_logs.txt
