@@ -7,10 +7,26 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
-# POC streaming target: free piping-server relay (swap PIPE_URL for your real
-# staging web app's WebSocket endpoint once it exists — see PROD migration notes).
+# Real-time log streaming via Ably (one persistent WebSocket connection per
+# job, each line published as a message the instant it's produced).
 env:
-  PIPE_URL: "https://ppng.io/gh-actions-demo-sumitkumardubey"
+  ABLY_CHANNEL: "gh-actions-logs"
+  ABLY_SEND_SCRIPT: |
+    import asyncio
+    import os
+    import sys
+    from ably import AblyRealtime
+
+    async def main():
+        client = AblyRealtime(os.environ["ABLY_API_KEY"])
+        channel = client.channels.get(os.environ["ABLY_CHANNEL"])
+        for line in sys.stdin:
+            line = line.rstrip("\n")
+            if line:
+                await channel.publish("log", line)
+        await client.close()
+
+    asyncio.run(main())
 
 jobs:
 
@@ -22,37 +38,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Notify Start
+      - name: Install Ably Client
         run: |
-          echo "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
+          pip install -q ably
+          echo "$ABLY_SEND_SCRIPT" > /tmp/ably_send.py
 
-      - name: Run Lint
+      - name: Run Lint (streamed live)
+        env:
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
         run: |
           {
+            echo "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+
             echo "[lint] === git clone ==="
             git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
-            echo ""
 
             echo "[lint] === pip install flake8 black ==="
             pip install flake8 black 2>&1
-            echo ""
 
             echo "[lint] === flake8 ==="
             flake8 /tmp/repo/src/ --max-line-length=120 2>&1 || true
-            echo ""
 
             echo "[lint] === black check ==="
             black --check /tmp/repo/src/ 2>&1 || true
-            echo ""
 
             echo "[lint] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
-          } > /tmp/job_logs.txt
+          } | python3 /tmp/ably_send.py
 
       - name: Keep Alive
         run: sleep 60
-
-      - name: Send Logs
-        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 2 — BUILD
@@ -63,20 +77,23 @@ jobs:
     needs: lint
     steps:
 
-      - name: Notify Start
+      - name: Install Ably Client
         run: |
-          echo "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
+          pip install -q ably
+          echo "$ABLY_SEND_SCRIPT" > /tmp/ably_send.py
 
-      - name: Run Build
+      - name: Run Build (streamed live)
+        env:
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
         run: |
           {
+            echo "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+
             echo "[build] === git clone ==="
             git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
-            echo ""
 
             echo "[build] === pip install dependencies ==="
             pip install -r /tmp/repo/requirements.txt 2>&1
-            echo ""
 
             echo "[build] === project structure check ==="
             for f in src/app.py src/utils.py tests/test_app.py tests/test_utils.py requirements.txt; do
@@ -86,20 +103,15 @@ jobs:
                 echo "  MISSING: $f"
               fi
             done
-            echo ""
 
             echo "[build] === import check ==="
             cd /tmp/repo && python3 -c "from src.app import add, subtract, multiply, divide; from src.utils import is_even, clamp, flatten; print('All imports OK')" 2>&1
-            echo ""
 
             echo "[build] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
-          } > /tmp/job_logs.txt
+          } | python3 /tmp/ably_send.py
 
       - name: Keep Alive
         run: sleep 60
-
-      - name: Send Logs
-        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 3 — TEST
@@ -110,37 +122,35 @@ jobs:
     needs: build
     steps:
 
-      - name: Notify Start
+      - name: Install Ably Client
         run: |
-          echo "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
+          pip install -q ably
+          echo "$ABLY_SEND_SCRIPT" > /tmp/ably_send.py
 
-      - name: Run Tests
+      - name: Run Tests (streamed live)
+        env:
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
         run: |
           {
+            echo "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+
             echo "[test] === git clone ==="
             git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
-            echo ""
 
             echo "[test] === pip install ==="
             pip install -r /tmp/repo/requirements.txt 2>&1
-            echo ""
 
             echo "[test] === pytest ==="
             cd /tmp/repo && python3 -m pytest tests/ -v 2>&1
-            echo ""
 
             echo "[test] === coverage ==="
             cd /tmp/repo && python3 -m pytest tests/ --cov=src --cov-report=term-missing 2>&1
-            echo ""
 
             echo "[test] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
-          } > /tmp/job_logs.txt
+          } | python3 /tmp/ably_send.py
 
       - name: Keep Alive
         run: sleep 60
-
-      - name: Send Logs
-        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 4 — SECURITY
@@ -151,38 +161,36 @@ jobs:
     needs: test
     steps:
 
-      - name: Notify Start
+      - name: Install Ably Client
         run: |
-          echo "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
+          pip install -q ably
+          echo "$ABLY_SEND_SCRIPT" > /tmp/ably_send.py
 
-      - name: Run Security Scan
+      - name: Run Security Scan (streamed live)
+        env:
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
         run: |
           {
+            echo "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+
             echo "[security] === git clone ==="
             git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
-            echo ""
 
             echo "[security] === pip install bandit ==="
             pip install bandit 2>&1
-            echo ""
 
             echo "[security] === bandit scan ==="
             bandit -r /tmp/repo/src/ -f txt 2>&1 || true
-            echo ""
 
             echo "[security] === hardcoded secrets check ==="
             PATTERNS="password=|secret=|api_key=|token=|private_key="
             grep -rniE "$PATTERNS" /tmp/repo/src/ 2>/dev/null || echo "  No matches found"
-            echo ""
 
             echo "[security] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S')"
-          } > /tmp/job_logs.txt
+          } | python3 /tmp/ably_send.py
 
       - name: Keep Alive
         run: sleep 60
-
-      - name: Send Logs
-        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY
@@ -193,16 +201,20 @@ jobs:
     needs: security
     steps:
 
-      - name: Notify Start
+      - name: Install Ably Client
         run: |
-          echo "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
+          pip install -q ably
+          echo "$ABLY_SEND_SCRIPT" > /tmp/ably_send.py
 
-      - name: Run Deploy
+      - name: Run Deploy (streamed live)
+        env:
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
         run: |
           {
+            echo "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+
             echo "[deploy] === git clone ==="
             git clone --depth 1 "https://github.com/${{ github.repository }}.git" /tmp/repo 2>&1
-            echo ""
 
             echo "[deploy] === validate config ==="
             ERRORS=0
@@ -215,7 +227,6 @@ jobs:
             if [ "$ERRORS" -eq 0 ]; then
               echo "  All required files present. Validation PASSED"
             fi
-            echo ""
 
             echo "[deploy] === package artifact ==="
             ARTIFACT="/tmp/release-${{ github.run_number }}.tar.gz"
@@ -225,13 +236,9 @@ jobs:
             echo "  Artifact: $ARTIFACT"
             echo "  Size: $SIZE"
             echo "  Files: $FILE_COUNT"
-            echo ""
 
             echo "[deploy] COMPLETED at $(date '+%Y-%m-%d %H:%M:%S') — DEPLOY READY"
-          } > /tmp/job_logs.txt
+          } | python3 /tmp/ably_send.py
 
       - name: Keep Alive
         run: sleep 60
-
-      - name: Send Logs
-        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
