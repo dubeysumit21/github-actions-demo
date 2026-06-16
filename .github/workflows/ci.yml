@@ -8,7 +8,8 @@ on:
   workflow_dispatch:
 
 # Real-time log streaming via Ably (one persistent WebSocket connection per
-# job, each line published as a message the instant it's produced).
+# job, each line published as a message the instant it's produced). 
+# test file added
 env:
   ABLY_CHANNEL: "gh-actions-logs"
   ABLY_SEND_SCRIPT: |
