@@ -7,25 +7,10 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
-# POC socket target: PieSocket's public WebSocket test channel (swap SOCKET_URL
-# for your real staging web app's WebSocket endpoint once it exists).
+# POC streaming target: free piping-server relay (swap PIPE_URL for your real
+# staging web app's WebSocket endpoint once it exists — see PROD migration notes).
 env:
-  SOCKET_URL: "wss://demo.piesocket.com/v3/gh-actions-demo-sumitkumardubey?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self=1"
-  WS_SEND_SCRIPT: |
-    import asyncio
-    import os
-    import sys
-    import websockets
-
-    async def main():
-        uri = os.environ["SOCKET_URL"]
-        async with websockets.connect(uri) as ws:
-            for line in sys.stdin:
-                line = line.rstrip("\n")
-                if line:
-                    await ws.send(line)
-
-    asyncio.run(main())
+  PIPE_URL: "https://ppng.io/gh-actions-demo-sumitkumardubey"
 
 jobs:
 
@@ -37,14 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Install WebSocket Client
-        run: |
-          pip install -q websockets
-          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
-
       - name: Notify Start
         run: |
-          echo "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
+          echo "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
 
       - name: Run Lint
         run: |
@@ -72,7 +52,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
+        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 2 — BUILD
@@ -83,14 +63,9 @@ jobs:
     needs: lint
     steps:
 
-      - name: Install WebSocket Client
-        run: |
-          pip install -q websockets
-          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
-
       - name: Notify Start
         run: |
-          echo "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
+          echo "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
 
       - name: Run Build
         run: |
@@ -124,7 +99,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
+        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 3 — TEST
@@ -135,14 +110,9 @@ jobs:
     needs: build
     steps:
 
-      - name: Install WebSocket Client
-        run: |
-          pip install -q websockets
-          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
-
       - name: Notify Start
         run: |
-          echo "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
+          echo "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
 
       - name: Run Tests
         run: |
@@ -170,7 +140,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
+        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 4 — SECURITY
@@ -181,14 +151,9 @@ jobs:
     needs: test
     steps:
 
-      - name: Install WebSocket Client
-        run: |
-          pip install -q websockets
-          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
-
       - name: Notify Start
         run: |
-          echo "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
+          echo "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
 
       - name: Run Security Scan
         run: |
@@ -217,7 +182,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
+        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
 
   # ─────────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY
@@ -228,14 +193,9 @@ jobs:
     needs: security
     steps:
 
-      - name: Install WebSocket Client
-        run: |
-          pip install -q websockets
-          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
-
       - name: Notify Start
         run: |
-          echo "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
+          echo "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | curl --max-time 20 -s -T - $PIPE_URL
 
       - name: Run Deploy
         run: |
@@ -274,4 +234,4 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
+        run: curl --max-time 20 -s -T /tmp/job_logs.txt $PIPE_URL
