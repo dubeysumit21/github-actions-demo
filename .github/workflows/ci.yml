@@ -7,8 +7,25 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+# POC socket target: PieSocket's public WebSocket test channel (swap SOCKET_URL
+# for your real staging web app's WebSocket endpoint once it exists).
 env:
-  WEBHOOK_URL: https://webhook.site/7caee6ba-4fbf-4123-82f7-7103f20d52b5
+  SOCKET_URL: "wss://demo.piesocket.com/v3/gh-actions-demo-sumitkumardubey?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self=1"
+  WS_SEND_SCRIPT: |
+    import asyncio
+    import os
+    import sys
+    import websockets
+
+    async def main():
+        uri = os.environ["SOCKET_URL"]
+        async with websockets.connect(uri) as ws:
+            for line in sys.stdin:
+                line = line.rstrip("\n")
+                if line:
+                    await ws.send(line)
+
+    asyncio.run(main())
 
 jobs:
 
@@ -20,10 +37,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      - name: Install WebSocket Client
+        run: |
+          pip install -q websockets
+          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
+
       - name: Notify Start
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "[lint] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
 
       - name: Run Lint
         run: |
@@ -51,9 +72,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            --data-binary @/tmp/job_logs.txt
+        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 2 — BUILD
@@ -64,10 +83,14 @@ jobs:
     needs: lint
     steps:
 
+      - name: Install WebSocket Client
+        run: |
+          pip install -q websockets
+          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
+
       - name: Notify Start
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "[build] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
 
       - name: Run Build
         run: |
@@ -101,9 +124,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            --data-binary @/tmp/job_logs.txt
+        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 3 — TEST
@@ -114,10 +135,14 @@ jobs:
     needs: build
     steps:
 
+      - name: Install WebSocket Client
+        run: |
+          pip install -q websockets
+          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
+
       - name: Notify Start
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "[test] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
 
       - name: Run Tests
         run: |
@@ -145,9 +170,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            --data-binary @/tmp/job_logs.txt
+        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 4 — SECURITY
@@ -158,10 +181,14 @@ jobs:
     needs: test
     steps:
 
+      - name: Install WebSocket Client
+        run: |
+          pip install -q websockets
+          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
+
       - name: Notify Start
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "[security] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
 
       - name: Run Security Scan
         run: |
@@ -190,9 +217,7 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            --data-binary @/tmp/job_logs.txt
+        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
 
   # ─────────────────────────────────────────────────────────────
   # JOB 5 — DEPLOY
@@ -203,10 +228,14 @@ jobs:
     needs: security
     steps:
 
+      - name: Install WebSocket Client
+        run: |
+          pip install -q websockets
+          echo "$WS_SEND_SCRIPT" > /tmp/ws_send.py
+
       - name: Notify Start
         run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            -d "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "[deploy] STARTED at $(date '+%Y-%m-%d %H:%M:%S')" | python3 /tmp/ws_send.py
 
       - name: Run Deploy
         run: |
@@ -245,6 +274,4 @@ jobs:
         run: sleep 60
 
       - name: Send Logs
-        run: |
-          curl -s -w " → HTTP %{http_code}" -X POST $WEBHOOK_URL \
-            --data-binary @/tmp/job_logs.txt
+        run: python3 /tmp/ws_send.py < /tmp/job_logs.txt
