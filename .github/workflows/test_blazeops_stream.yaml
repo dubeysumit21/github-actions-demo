@@ -11,8 +11,8 @@ jobs:
       # job-level so every step's stream_log.py invocation can see these,
       # not just the step that originally set them
       BLAZEOPS_BASE_URL: "https://lushly-periscope-hurray.ngrok-free.dev"
-      API_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOjIsInByb2plY3RfaWQiOjEsInNlY3JldF9rZXkiOiJ5cWxGSzZpNjZXRF9zOVAyeFF6anc4RER6X1NpNkt0R3BScXBXRkNIZ0IwIiwiaWF0IjoxNzgyMzIzOTE2LCJ0eXBlIjoiYWdlbnRfYXBpX2tleSJ9.5HvouOsg5O3i3feV9eVyyuPsuZz2kUbPwjlVIII2Vtg"
-      DEPLOYMENT_ID: "10"
+      API_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOjIsInByb2plY3RfaWQiOjEsInNlY3JldF9rZXkiOiJmUklrd0pxbjdodGtfRkt4UzRrcnJ3SnRDazZZQzZRZjRPWjlfSl9iOU40IiwiaWF0IjoxNzgyMzI0MzQ2LCJ0eXBlIjoiYWdlbnRfYXBpX2tleSJ9.ykDKK8pOAyE4g_leMK9VDmdCTdpm1ISKhYXCF_tje7c"
+      DEPLOYMENT_ID: "11"
     defaults:
       run:
         shell: /tmp/stream_wrapper.sh {0}
@@ -64,11 +64,56 @@ jobs:
 
       - name: Fake work
         run: |
-          for i in $(seq 1 8); do
-            echo "fake provisioning step $i of 8"
-            sleep 1
-          done
-          echo "fake work complete"
+          STEP="checkout-infra"
+          echo "[job:$GITHUB_JOB step:$STEP] Checking out infra repository..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] AWS credentials configured for region us-east-1"
+          sleep 1
+
+          STEP="provision-infra"
+          echo "[job:$GITHUB_JOB step:$STEP] Initializing OpenTofu backend..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] OpenTofu initialized successfully"
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] Running terraform plan..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] Plan: 8 to add, 0 to change, 0 to destroy"
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] Applying infrastructure changes..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] aws_s3_bucket.tf_state: Creating..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] aws_instance.agent: Creating..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] aws_ecr_repository.agent: Creating..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] aws_instance.agent: Still creating... [10s elapsed]"
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] aws_instance.agent: Creation complete after 12s"
+          sleep 1
+
+          STEP="wait-for-ec2"
+          echo "[job:$GITHUB_JOB step:$STEP] Waiting for EC2 instance to boot..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] EC2 instance is now reachable via SSH"
+          sleep 1
+
+          STEP="ecr-login"
+          echo "[job:$GITHUB_JOB step:$STEP] Logging into Amazon ECR..."
+          sleep 1
+
+          STEP="docker-build-push"
+          echo "[job:$GITHUB_JOB step:$STEP] Building Docker image blazeops-agent:latest..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] Pushing image to ECR repository..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] Image pushed successfully"
+          sleep 1
+
+          STEP="deploy-ec2"
+          echo "[job:$GITHUB_JOB step:$STEP] Deploying container to EC2 instance..."
+          sleep 1
+          echo "[job:$GITHUB_JOB step:$STEP] Container blazeops-agent is running successfully!"
 
       - name: Fake failure (should be reported as failed)
         run: |
