@@ -1,0 +1,74 @@
+name: TEST - blazeops backend log streaming (throwaway)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: /tmp/stream_wrapper.sh {0}
+    steps:
+      - name: Setup log streaming
+        shell: bash
+        env:
+          BLAZEOPS_BASE_URL: "https://lushly-periscope-hurray.ngrok-free.dev"
+          API_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOjIsInByb2plY3RfaWQiOjEsInNlY3JldF9rZXkiOiI1QjJMc19jUnpIUzcweVBkUC02eGVaNkZhV2ZfQVh0SU4wcUstZnJBN1dFIiwiaWF0IjoxNzgyMzA0Nzc1LCJ0eXBlIjoiYWdlbnRfYXBpX2tleSJ9._N4ouNoMw6TfNs-wIsbGqG4VOXDu3wtzdyfuFgGzxto"
+          DEPLOYMENT_ID: "3"
+        run: |
+          pip install -q "python-socketio[client]" websocket-client
+
+          cat > /tmp/stream_log.py << 'PYEOF'
+          import os
+          import sys
+          import socketio
+
+          sio = socketio.Client()
+          try:
+              sio.connect(
+                  os.environ["BLAZEOPS_BASE_URL"],
+                  auth={
+                      "api_key": os.environ.get("API_KEY", ""),
+                      "deployment_id": os.environ.get("DEPLOYMENT_ID", ""),
+                  },
+                  wait_timeout=10,
+              )
+              print(f"[stream] connected: {sio.connected}", file=sys.stderr)
+          except Exception as exc:
+              print(f"[stream] connect failed: {exc}", file=sys.stderr)
+              sio = None
+
+          for raw_line in sys.stdin:
+              line = raw_line.rstrip("\n")
+              print(line)
+              if sio is not None and sio.connected and line.strip():
+                  try:
+                      sio.emit("gha_log_line", {"line": line})
+                  except Exception as exc:
+                      print(f"[stream] emit failed: {exc}", file=sys.stderr)
+
+          if sio is not None and sio.connected:
+              sio.disconnect()
+          PYEOF
+
+          cat > /tmp/stream_wrapper.sh << 'SHEOF'
+          #!/bin/bash
+          bash "$1" 2>&1 | python3 /tmp/stream_log.py
+          exit ${PIPESTATUS[0]}
+          SHEOF
+          chmod +x /tmp/stream_wrapper.sh
+
+      - name: Fake work
+        run: |
+          for i in $(seq 1 8); do
+            echo "fake provisioning step $i of 8"
+            sleep 1
+          done
+          echo "fake work complete"
+
+      - name: Fake failure (should be reported as failed)
+        run: |
+          echo "about to fail on purpose"
+          exit 1
