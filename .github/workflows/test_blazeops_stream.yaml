@@ -11,8 +11,8 @@ jobs:
       # job-level so every step's stream_log.py invocation can see these,
       # not just the step that originally set them
       BLAZEOPS_BASE_URL: "https://lushly-periscope-hurray.ngrok-free.dev"
-      API_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOjIsInByb2plY3RfaWQiOjEsInNlY3JldF9rZXkiOiI1QjJMc19jUnpIUzcweVBkUC02eGVaNkZhV2ZfQVh0SU4wcUstZnJBN1dFIiwiaWF0IjoxNzgyMzA0Nzc1LCJ0eXBlIjoiYWdlbnRfYXBpX2tleSJ9._N4ouNoMw6TfNs-wIsbGqG4VOXDu3wtzdyfuFgGzxto"
-      DEPLOYMENT_ID: "3"
+      API_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOjIsInByb2plY3RfaWQiOjEsInNlY3JldF9rZXkiOiJLTEdqbmRjQ0ZkU3RKS29KSk9xM1RyaUpYWkNzcDQ0MHAwbVlCTlR1cGtrIiwiaWF0IjoxNzgyMzIzMTMzLCJ0eXBlIjoiYWdlbnRfYXBpX2tleSJ9.kFjOZYaMiecqkPtOVoFVOQdFn7o-QhDOr9a_4Xk5VyQ"
+      DEPLOYMENT_ID: "8"
     defaults:
       run:
         shell: /tmp/stream_wrapper.sh {0}
